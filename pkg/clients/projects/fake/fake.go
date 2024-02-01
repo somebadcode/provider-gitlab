@@ -56,6 +56,7 @@ type MockClient struct {
 	MockGetProjectAccessToken    func(pid interface{}, id int, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectAccessToken, *gitlab.Response, error)
 	MockCreateProjectAccessToken func(pid interface{}, opt *gitlab.CreateProjectAccessTokenOptions, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectAccessToken, *gitlab.Response, error)
 	MockRevokeProjectAccessToken func(pid interface{}, id int, options ...gitlab.RequestOptionFunc) (*gitlab.Response, error)
+	MockRotateProjectAccessToken func(pid interface{}, id int, opt *gitlab.RotateProjectAccessTokenOptions, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectAccessToken, *gitlab.Response, error)
 
 	MockAddDeployKey    func(pid interface{}, opt *gitlab.AddDeployKeyOptions, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectDeployKey, *gitlab.Response, error)
 	MockDeleteDeployKey func(pid interface{}, deployKey int, options ...gitlab.RequestOptionFunc) (*gitlab.Response, error)
@@ -246,6 +247,11 @@ func (c *MockClient) CreateProjectAccessToken(pid interface{}, opt *gitlab.Creat
 // RevokeProjectAccessToken calls the underlying MockRevokeProjectAccessToken method.
 func (c *MockClient) RevokeProjectAccessToken(pid interface{}, id int, options ...gitlab.RequestOptionFunc) (*gitlab.Response, error) {
 	return c.MockRevokeProjectAccessToken(pid, id)
+}
+
+// RotateProjectAccessToken calls the underlying MockRotateProjectAccessToken method.
+func (c *MockClient) RotateProjectAccessToken(pid interface{}, id int, opt *gitlab.RotateProjectAccessTokenOptions, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectAccessToken, *gitlab.Response, error) {
+	return c.MockRotateProjectAccessToken(pid, id, opt)
 }
 
 // ListUsers calls the underlying MockListUsers method.

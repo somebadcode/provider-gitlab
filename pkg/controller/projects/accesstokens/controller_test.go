@@ -481,11 +481,48 @@ func TestUpdate(t *testing.T) {
 	}{
 		"SuccessfulUpdate": {
 			args: args{
-				cr: accessToken(),
+				accessTokenClient: &fake.MockClient{
+					MockRotateProjectAccessToken: func(pid interface{}, id int, opt *gitlab.RotateProjectAccessTokenOptions, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectAccessToken, *gitlab.Response, error) {
+						return &gitlab.ProjectAccessToken{
+							ID:          id,
+							UserID:      0,
+							Name:        "",
+							Scopes:      nil,
+							CreatedAt:   nil,
+							LastUsedAt:  nil,
+							ExpiresAt:   gitlab.Ptr(gitlab.ISOTime(expiresAt)),
+							Active:      false,
+							Revoked:     false,
+							Token:       token,
+							AccessLevel: 0,
+						}, &gitlab.Response{}, nil
+					},
+				},
+				cr: accessToken(
+					withConditions(xpv1.Available()),
+					withExternalName(sAccessTokenID),
+					withSpec(v1alpha1.AccessTokenParameters{
+						ProjectID:   &projectID,
+						AccessLevel: (*v1alpha1.AccessLevelValue)(&accessLevel),
+						ExpiresAt:   &v1.Time{Time: expiresAt},
+					}),
+				),
 			},
 			want: want{
-				cr:     accessToken(),
-				result: managed.ExternalUpdate{},
+				cr: accessToken(
+					withExternalName(sAccessTokenID),
+					withConditions(xpv1.Available()),
+					withSpec(v1alpha1.AccessTokenParameters{
+						ProjectID:   &projectID,
+						AccessLevel: (*v1alpha1.AccessLevelValue)(&accessLevel),
+						ExpiresAt:   &v1.Time{Time: expiresAt},
+					}),
+				),
+				result: managed.ExternalUpdate{
+					ConnectionDetails: managed.ConnectionDetails{
+						"token": []byte(token),
+					},
+				},
 			},
 		},
 	}

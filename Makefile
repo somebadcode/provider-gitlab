@@ -42,8 +42,6 @@ GO111MODULE = on
 # ====================================================================================
 # Setup Kubernetes tools
 
-UP_VERSION = v0.13.0
-UP_CHANNEL = stable
 -include build/makelib/k8s_tools.mk
 
 # ====================================================================================
@@ -61,6 +59,7 @@ XPKG_REG_ORGS ?= xpkg.upbound.io/crossplane-contrib index.docker.io/crossplaneco
 XPKG_REG_ORGS_NO_PROMOTE ?= xpkg.upbound.io/crossplane-contrib
 XPKGS = provider-gitlab
 -include build/makelib/xpkg.mk
+-include build/makelib/local.xpkg.mk
 
 # NOTE(hasheddan): we force image building to happen prior to xpkg build so that
 # we ensure image is present in daemon.

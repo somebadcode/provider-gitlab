@@ -21,10 +21,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/xanzy/go-gitlab"
-
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
+	"github.com/xanzy/go-gitlab"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,6 +49,12 @@ const (
 	errDeleteFailed         = "cannot delete Gitlab accesstoken"
 	errAccessTokentNotFound = "cannot find Gitlab accesstoken"
 	errMissingProjectID     = "missing Spec.ForProvider.ProjectID"
+	errRotationFailed       = "access token rotation failed"
+)
+
+const (
+	// DefaultAccessTokenRotateThreshold is the default period prior to expiration at which a token should be rotated.
+	DefaultAccessTokenRotateThreshold = 7 * 24 * time.Hour
 )
 
 // SetupAccessToken adds a controller that reconciles ProjectAccessTokens.
@@ -109,7 +114,7 @@ func (e *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, errors.New(errMissingProjectID)
 	}
 
-	at, res, err := e.client.GetProjectAccessToken(*cr.Spec.ForProvider.ProjectID, accessTokenID)
+	at, res, err := e.client.GetProjectAccessToken(*cr.Spec.ForProvider.ProjectID, accessTokenID, gitlab.WithContext(ctx))
 	if err != nil {
 		if clients.IsResponseNotFound(res) {
 			return managed.ExternalObservation{}, nil
@@ -117,14 +122,21 @@ func (e *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, errors.Wrap(err, errAccessTokentNotFound)
 	}
 
+	cr.Status.AtProvider.CopyFromToken(at)
+
 	current := cr.Spec.ForProvider.DeepCopy()
 	lateInitializeProjectAccessToken(&cr.Spec.ForProvider, at)
 
 	cr.Status.SetConditions(xpv1.Available())
 
+	var threshold = DefaultAccessTokenRotateThreshold
+	if current.RotateThreshold != nil {
+		threshold = current.RotateThreshold.Abs()
+	}
+
 	return managed.ExternalObservation{
 		ResourceExists:          true,
-		ResourceUpToDate:        true,
+		ResourceUpToDate:        !cr.Status.AtProvider.IsRevoked() && !cr.Status.AtProvider.ExpiresWithin(threshold),
 		ResourceLateInitialized: !cmp.Equal(current, &cr.Spec.ForProvider),
 	}, nil
 }
@@ -149,7 +161,10 @@ func (e *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateFailed)
 	}
 
+	cr.Status.AtProvider.CopyFromToken(at)
+
 	meta.SetExternalName(cr, strconv.Itoa(at.ID))
+
 	return managed.ExternalCreation{
 		ExternalNameAssigned: true,
 		ConnectionDetails: managed.ConnectionDetails{
@@ -159,8 +174,53 @@ func (e *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 }
 
 func (e *external) Update(ctx context.Context, mg resource.Managed) (managed.ExternalUpdate, error) {
-	// it's not possible to update a ProjectAccessToken
-	return managed.ExternalUpdate{}, nil
+	cr, ok := mg.(*v1alpha1.AccessToken)
+	if !ok {
+		return managed.ExternalUpdate{}, errors.New(errNotAccessToken)
+	}
+
+	externalName := meta.GetExternalName(cr)
+	if externalName == "" {
+		return managed.ExternalUpdate{}, errors.New(errNotAccessToken)
+	}
+
+	accessTokenID, err := strconv.Atoi(externalName)
+	if err != nil {
+		return managed.ExternalUpdate{}, errors.Wrap(err, errFailedParseID)
+	}
+
+	// The next expiration should be as far into the future as the total duration was for previous token.
+	// However, the TTL must not be less than twice the rotation threshold.
+	// Truncate to 24 hours for consistency, because that's what Gitlab will do anyway.
+	ttl := cr.Status.AtProvider.TotalDuration()
+	if cr.Spec.ForProvider.RotateThreshold != nil {
+		ttl = max(ttl, cr.Spec.ForProvider.RotateThreshold.Duration*time.Duration(2))
+	}
+	expiresAt := time.Now().Add(ttl).Truncate(24 * time.Hour)
+
+	var at *gitlab.ProjectAccessToken
+
+	at, _, err = e.client.RotateProjectAccessToken(
+		*cr.Spec.ForProvider.ProjectID,
+		accessTokenID,
+		&gitlab.RotateProjectAccessTokenOptions{
+			ExpiresAt: gitlab.Ptr(gitlab.ISOTime(expiresAt)),
+		},
+		gitlab.WithContext(ctx),
+	)
+	if err != nil {
+		return managed.ExternalUpdate{}, errors.Wrap(err, errRotationFailed)
+	}
+
+	cr.Status.AtProvider.CopyFromToken(at)
+
+	meta.SetExternalName(cr, strconv.Itoa(at.ID))
+
+	return managed.ExternalUpdate{
+		ConnectionDetails: managed.ConnectionDetails{
+			"token": []byte(at.Token),
+		},
+	}, nil
 }
 
 func (e *external) Delete(ctx context.Context, mg resource.Managed) error {

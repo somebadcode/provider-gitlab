@@ -170,15 +170,14 @@ func (e *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	meta.SetExternalName(cr, strconv.Itoa(ps.ID))
 
 	for _, v := range cr.Spec.ForProvider.Variables {
-		opt := &gitlab.CreatePipelineScheduleVariableOptions{
-			Key:          &v.Key,
-			Value:        &v.Value,
-			VariableType: v.VariableType,
-		}
 		_, _, err := e.client.CreatePipelineScheduleVariable(
 			*cr.Spec.ForProvider.ProjectID,
 			ps.ID,
-			opt,
+			&gitlab.CreatePipelineScheduleVariableOptions{
+				Key:          &v.Key,
+				Value:        &v.Value,
+				VariableType: v.VariableType,
+			},
 		)
 		if err != nil {
 			return managed.ExternalCreation{}, errors.Wrapf(err, errCreatePipelineScheduleVariable, v)

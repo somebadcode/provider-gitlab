@@ -157,6 +157,10 @@ spec:
                             type: string
                         type: object
                     type: object
+                  rotateThreshold:
+                    description: RotateThreshold is how long before the expiration
+                      that the token should be rotated.
+                    type: string
                   scopes:
                     description: Scopes indicates the access token scopes. Must be
                       at least one of read_repository, read_registry, write_registry,
@@ -347,8 +351,20 @@ spec:
                 description: "AccessTokenObservation represents a access token. \n
                   GitLab API docs: https://docs.gitlab.com/ee/api/project_access_tokens.html"
                 properties:
+                  active:
+                    type: boolean
+                  created_at:
+                    format: date-time
+                    type: string
+                  expires_at:
+                    format: date-time
+                    type: string
                   id:
                     type: integer
+                  name:
+                    type: string
+                  revoked:
+                    type: boolean
                 type: object
               conditions:
                 description: Conditions of the resource.

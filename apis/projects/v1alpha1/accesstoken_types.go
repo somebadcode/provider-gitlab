@@ -17,9 +17,17 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"time"
+
+	"github.com/xanzy/go-gitlab"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
+)
+
+const (
+	// DefaultAccessTokenMaxDuration is the default maximum TotalDuration for a token.
+	DefaultAccessTokenMaxDuration = 365 * 24 * time.Hour
 )
 
 // AccessTokenParameters define the desired state of a Gitlab access token
@@ -46,6 +54,10 @@ type AccessTokenParameters struct {
 	// +immutable
 	ExpiresAt *metav1.Time `json:"expiresAt,omitempty"`
 
+	// RotateThreshold is how long before the expiration that the token should be rotated.
+	// +optional
+	RotateThreshold *metav1.Duration `json:"rotateThreshold,omitempty"`
+
 	// Access level for the project. Default is 40.
 	// Valid values are 10 (Guest), 20 (Reporter), 30 (Developer), 40 (Maintainer), and 50 (Owner).
 	// +optional
@@ -68,7 +80,56 @@ type AccessTokenParameters struct {
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/project_access_tokens.html
 type AccessTokenObservation struct {
-	TokenID *int `json:"id,omitempty"`
+	TokenID   *int         `json:"id,omitempty"`
+	ExpiresAt *metav1.Time `json:"expires_at,omitempty"`
+	CreatedAt *metav1.Time `json:"created_at,omitempty"`
+	Name      *string      `json:"name,omitempty"`
+	Revoked   *bool        `json:"revoked,omitempty"`
+	Active    *bool        `json:"active,omitempty"`
+}
+
+// IsRevoked returns true if the Gitlab server has reported it as revoked. Default is false.
+func (at *AccessTokenObservation) IsRevoked() bool {
+	if at.Revoked == nil {
+		return false
+	}
+
+	return *at.Revoked
+}
+
+// ExpiresWithin return true if the Gitlab has reported an expiration time and that it is within the specified duration.
+func (at *AccessTokenObservation) ExpiresWithin(d time.Duration) bool {
+	if at.ExpiresAt == nil {
+		return false
+	}
+
+	return at.ExpiresAt.Add(-d.Abs()).Before(time.Now())
+}
+
+// TotalDuration returns the maximum time to live for the token. It's calculated from the duration between ExpiresAt and CreatedAt.
+// If either of these fields aren't set, the duration return will be 365 days. The maximum time to live in
+// Gitlab changed 365 days in milestone 16.0, from the previous unlimited time to live.
+func (at *AccessTokenObservation) TotalDuration() time.Duration {
+	if at.ExpiresAt == nil || at.CreatedAt == nil {
+		return DefaultAccessTokenMaxDuration
+	}
+
+	return at.ExpiresAt.Sub(at.CreatedAt.Time)
+}
+
+func (at *AccessTokenObservation) CopyFromToken(accessToken *gitlab.ProjectAccessToken) {
+	at.TokenID = gitlab.Ptr(accessToken.ID)
+	at.Name = gitlab.Ptr(accessToken.Name)
+	at.Active = gitlab.Ptr(accessToken.Active)
+	at.Revoked = gitlab.Ptr(accessToken.Revoked)
+
+	if accessToken.CreatedAt != nil {
+		at.CreatedAt = &metav1.Time{Time: *accessToken.CreatedAt}
+	}
+
+	if accessToken.ExpiresAt != nil {
+		at.ExpiresAt = &metav1.Time{Time: time.Time(*accessToken.ExpiresAt)}
+	}
 }
 
 // A AccessTokenSpec defines the desired state of a Gitlab Project.
